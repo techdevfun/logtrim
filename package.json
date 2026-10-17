@@ -1,0 +1,1 @@
+{"bin":{"logtrim":"./bin/logtrim.js"},"description":"Trim verbose logs and tool output to a token budget — keep the errors, drop the noise. Zero dependencies.","engines":{"node":">=18"},"license":"MIT","name":"logtrim","scripts":{"test":"node --test tests/logtrim.test.js"},"type":"module","version":"0.1.0"}
