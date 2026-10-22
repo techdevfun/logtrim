@@ -23,6 +23,8 @@ Options:
   --help, -h      show this help
   --version, -v   show version
 
+Value options also accept the --option=value form (e.g. --budget=500).
+
 Exit codes: 0 ok · 1 input file not found / unreadable · 2 bad arguments.
 `;
 
@@ -50,8 +52,18 @@ function parseArgs(argv) {
     stats: false,
     file: null,
   };
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
+  // Support --option=value in addition to --option value.
+  const args = [];
+  for (const a of argv) {
+    const eq = a.startsWith("--") ? a.indexOf("=") : -1;
+    if (eq > 2) {
+      args.push(a.slice(0, eq), a.slice(eq + 1));
+    } else {
+      args.push(a);
+    }
+  }
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
     if (arg === "--help" || arg === "-h") {
       process.stdout.write(HELP);
       process.exit(0);
@@ -64,7 +76,7 @@ function parseArgs(argv) {
     else if (arg === "--no-errors") opts.keepErrors = false;
     else if (arg === "--no-dedupe") opts.dedupe = false;
     else if (arg === "--budget" || arg === "--head" || arg === "--tail" || arg === "--max-line") {
-      const value = argv[i + 1];
+      const value = args[i + 1];
       if (value === undefined) fail(`${arg} needs a value`, 2);
       i += 1;
       if (arg === "--budget") opts.budgetTokens = parseIntOption("budget", value);
