@@ -130,3 +130,19 @@ test("CLI --help and --version exit 0", () => {
   assert.equal(v.status, 0);
   assert.match(v.stdout, /logtrim 0\.1\.0/);
 });
+
+test("CLI accepts --option=value form", () => {
+  const input = `${"filler line\n".repeat(300)}ERROR: boom\n`;
+  const res = spawnSync(process.execPath, [cli, "--budget=100", "--stats"], {
+    input,
+    encoding: "utf8",
+  });
+  assert.equal(res.status, 0);
+  assert.ok(res.stdout.includes("ERROR: boom"));
+  const stats = JSON.parse(res.stderr.trim());
+  assert.ok(stats.outputTokens <= 100);
+  // Empty value must be rejected, like other bad values.
+  const bad = spawnSync(process.execPath, [cli, "--budget="], { encoding: "utf8" });
+  assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /positive integer/);
+});
