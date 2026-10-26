@@ -176,7 +176,65 @@ function fitToBudget(items, budgetTokens) {
     drop.add(e.idx);
     total -= e.tok;
   }
-  kept = kept.filter((_, idx) => !drop.has(idx));
+  // Dropped lines were kept lines, not gap lines — but the budget markers
+  // inserted by selectHeadErrorsTail count only the gaps between kept
+  // segments. Dropping lines next to such a marker without updating it
+  // leaves the marker understating what is missing (e.g. "290 lines
+  // omitted" while stats say 295 omitted). Fold each run of dropped
+  // lines into an adjacent budget marker, or insert a marker for the
+  // run, so the markers and the stats agree. A new marker is only kept
+  // when the output still fits the budget; otherwise the run stays
+  // unmarked, exactly as before. Collapse markers (identical/similar)
+  // are never touched: their counts describe collapsed runs, not gaps.
+  const budgetMarkerRE = /lines omitted to fit \d+-token budget/;
+  const inserted = new Set();
+  const merged = [];
+  let i = 0;
+  while (i < kept.length) {
+    if (!drop.has(i)) {
+      merged.push(kept[i]);
+      i += 1;
+      continue;
+    }
+    let j = i;
+    while (j < kept.length && drop.has(j)) j += 1;
+    const runLen = j - i;
+    const prev = merged[merged.length - 1];
+    const next = kept[j];
+    if (prev && prev.marker && budgetMarkerRE.test(prev.text)) {
+      const represents = prev.represents + runLen;
+      merged[merged.length - 1] = {
+        ...prev,
+        represents,
+        text: `... [${represents} lines omitted to fit ${budgetTokens}-token budget] ...`,
+      };
+    } else if (next && next.marker && budgetMarkerRE.test(next.text)) {
+      const represents = next.represents + runLen;
+      merged.push({
+        ...next,
+        represents,
+        text: `... [${represents} lines omitted to fit ${budgetTokens}-token budget] ...`,
+      });
+      j += 1; // consume the marker just merged into
+    } else {
+      const marker = {
+        text: `... [${runLen} lines omitted to fit ${budgetTokens}-token budget] ...`,
+        isError: false,
+        represents: runLen,
+        marker: true,
+      };
+      merged.push(marker);
+      inserted.add(marker);
+    }
+    i = j;
+  }
+  kept = merged;
+  total = tokensOf(kept);
+  if (total > budgetTokens && inserted.size > 0) {
+    // New markers must never push the output back over budget.
+    kept = kept.filter((it) => !inserted.has(it));
+    total = tokensOf(kept);
+  }
   if (total <= budgetTokens) return kept;
   if (kept.length === 0) return kept;
 
