@@ -87,6 +87,34 @@ test("head and tail are kept when over budget", () => {
   assert.ok(out[out.length - 1].includes("unique line number 299"));
 });
 
+test("budget marker counts lines dropped while fitting", () => {
+  // Regression: selectHeadErrorsTail inserts a 290-line gap marker, then
+  // fitToBudget dropped 5 more head/tail lines without updating it, so
+  // the marker said 290 while stats said 295 omitted.
+  const lines = Array.from(
+    { length: 300 },
+    (_, i) => `unique line number ${i} ${"y".repeat(i % 37)}`,
+  );
+  const { lines: out, stats } = trimLines(lines, {
+    budgetTokens: 50,
+    headLines: 5,
+    tailLines: 5,
+  });
+  assert.ok(stats.outputTokens <= 50, `got ${stats.outputTokens}`);
+  const marker = out.find((l) => l.includes("omitted to fit 50-token budget"));
+  assert.ok(marker, "expected a budget marker");
+  assert.ok(
+    marker.includes(`${stats.omittedLines} lines omitted`),
+    `marker ${marker} should agree with stats omittedLines ${stats.omittedLines}`,
+  );
+  // Markers + kept original lines must account for every input line.
+  const keptOriginal = out.filter((l) => !l.includes("omitted")).length;
+  const markerTotal = out
+    .filter((l) => l.includes("omitted"))
+    .reduce((sum, l) => sum + Number(l.match(/(\d+) lines omitted/)[1]), 0);
+  assert.equal(keptOriginal + markerTotal, 300);
+});
+
 test("isErrorLine catches errors, stack frames, failures", () => {
   assert.equal(isErrorLine("Error: something broke"), true);
   assert.equal(isErrorLine("    at doThing (index.js:12:3)"), true);
