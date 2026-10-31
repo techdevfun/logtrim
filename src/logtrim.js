@@ -16,6 +16,18 @@ export function estimateTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
+// The one true token measure: it matches exactly what is reported in
+// stats.outputTokens (the joined output text, newlines included). All
+// budget math must use this, never a per-line sum — the "\n" join cost
+// alone can push outputTokens over budget on many short lines.
+function measureTokens(items) {
+  return estimateTokens(items.map((it) => it.text).join("\n"));
+}
+
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
 const ERROR_RE =
   /(error|failed?|failure|exception|traceback|panic|fatal|assert|uncaught|denied|timeout|timed out|out of memory|segfault|eaddrinuse|enoent|econnrefused|permission denied|not found|invalid|warning)/i;
 const STACK_RE =
@@ -67,7 +79,7 @@ function collapseIdentical(items) {
     if (run > 2) {
       out.push(items[i], items[i + 1]);
       out.push({
-        text: `... [${run - 2} identical lines omitted] ...`,
+        text: `... [${plural(run - 2, "identical line")} omitted] ...`,
         isError: false,
         represents: run - 2,
         marker: true,
@@ -105,7 +117,7 @@ function collapseSimilar(items) {
     if (run >= 5 && !hasError) {
       out.push(items[i], items[i + 1]);
       out.push({
-        text: `... [${run - 2} similar lines omitted] ...`,
+        text: `... [${plural(run - 2, "similar line")} omitted] ...`,
         isError: false,
         represents: run - 2,
         marker: true,
@@ -140,7 +152,7 @@ function selectHeadErrorsTail(items, { headLines, tailLines, keepErrors, budgetT
         .reduce((sum, it) => sum + it.represents, 0);
       if (gap > 0) {
         out.push({
-          text: `... [${gap} lines omitted to fit ${budgetTokens}-token budget] ...`,
+          text: `... [${plural(gap, "line")} omitted to fit ${budgetTokens}-token budget] ...`,
           isError: false,
           represents: gap,
           marker: true,
@@ -159,8 +171,7 @@ function selectHeadErrorsTail(items, { headLines, tailLines, keepErrors, budgetT
 // remain and they still exceed it, truncate them to share the budget.
 function fitToBudget(items, budgetTokens) {
   let kept = [...items];
-  const tokensOf = (list) =>
-    list.reduce((sum, it) => sum + estimateTokens(it.text), 0);
+  const tokensOf = (list) => measureTokens(list);
   let total = tokensOf(kept);
   if (total <= budgetTokens) return kept;
 
@@ -171,10 +182,19 @@ function fitToBudget(items, budgetTokens) {
     .filter((e) => !kept[e.idx].isError && !kept[e.idx].marker)
     .sort((a, b) => Math.abs(a.idx - middle) - Math.abs(b.idx - middle));
   const drop = new Set();
+  // e.tok is per-line while total is measured on the joined text, so the
+  // running subtraction is only a heuristic: recompute exactly before
+  // deciding to stop, otherwise the loop can quit a few lines too early
+  // (or too late) and leave the output over budget.
+  let approx = total;
   for (const e of order) {
-    if (total <= budgetTokens) break;
+    if (approx <= budgetTokens) {
+      total = tokensOf(kept.filter((_, idx) => !drop.has(idx)));
+      if (total <= budgetTokens) break;
+      approx = total;
+    }
     drop.add(e.idx);
-    total -= e.tok;
+    approx -= e.tok;
   }
   // Dropped lines were kept lines, not gap lines — but the budget markers
   // inserted by selectHeadErrorsTail count only the gaps between kept
@@ -186,7 +206,7 @@ function fitToBudget(items, budgetTokens) {
   // when the output still fits the budget; otherwise the run stays
   // unmarked, exactly as before. Collapse markers (identical/similar)
   // are never touched: their counts describe collapsed runs, not gaps.
-  const budgetMarkerRE = /lines omitted to fit \d+-token budget/;
+  const budgetMarkerRE = /lines? omitted to fit \d+-token budget/;
   const inserted = new Set();
   const merged = [];
   let i = 0;
@@ -206,19 +226,19 @@ function fitToBudget(items, budgetTokens) {
       merged[merged.length - 1] = {
         ...prev,
         represents,
-        text: `... [${represents} lines omitted to fit ${budgetTokens}-token budget] ...`,
+        text: `... [${plural(represents, "line")} omitted to fit ${budgetTokens}-token budget] ...`,
       };
     } else if (next && next.marker && budgetMarkerRE.test(next.text)) {
       const represents = next.represents + runLen;
       merged.push({
         ...next,
         represents,
-        text: `... [${represents} lines omitted to fit ${budgetTokens}-token budget] ...`,
+        text: `... [${plural(represents, "line")} omitted to fit ${budgetTokens}-token budget] ...`,
       });
       j += 1; // consume the marker just merged into
     } else {
       const marker = {
-        text: `... [${runLen} lines omitted to fit ${budgetTokens}-token budget] ...`,
+        text: `... [${plural(runLen, "line")} omitted to fit ${budgetTokens}-token budget] ...`,
         isError: false,
         represents: runLen,
         marker: true,
@@ -248,14 +268,28 @@ function fitToBudget(items, budgetTokens) {
     };
   });
   total = tokensOf(kept);
-  // Last resort: hard-truncate the final line so output never exceeds budget.
-  if (total > budgetTokens && kept.length > 0) {
-    const excessChars = (total - budgetTokens) * 4 + 4;
+  // Last resort: hard-chop lines from the end until the output truly fits
+  // the budget. The old code chopped only the final line once, which could
+  // not absorb a large excess (and the "truncated" suffix above can even
+  // grow short lines) — output could end up far over budget. This uses the
+  // same measure as the reported outputTokens, so the "output never exceeds
+  // the budget" promise holds even when error lines and markers alone are
+  // over budget. Each pass strictly shrinks the total (emptied lines are
+  // dropped entirely — their "\n" join cost counts too), so it terminates.
+  let guard = 0;
+  while (total > budgetTokens && kept.length > 0 && guard < 100000) {
+    guard += 1;
+    const excessChars = (total - budgetTokens) * 4 + 8;
     const last = kept[kept.length - 1];
-    kept[kept.length - 1] = {
-      ...last,
-      text: last.text.slice(0, Math.max(0, last.text.length - excessChars)),
-    };
+    if (last.text.length > excessChars) {
+      kept[kept.length - 1] = {
+        ...last,
+        text: last.text.slice(0, last.text.length - excessChars),
+      };
+    } else {
+      kept.pop();
+    }
+    total = tokensOf(kept);
   }
   return kept;
 }
@@ -289,8 +323,7 @@ export function trimLines(lines, options = {}) {
     it.marker ? it : { ...it, text: truncateLine(it.text, maxLineChars) },
   );
 
-  const totalTokens = (list) =>
-    list.reduce((sum, it) => sum + estimateTokens(it.text), 0);
+  const totalTokens = (list) => measureTokens(list);
 
   let selected;
   if (totalTokens(items) <= budgetTokens) {
