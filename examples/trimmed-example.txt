@@ -3,34 +3,12 @@ Resolving dependencies...
 Installing 184 packages...
 Compiling module 1/184: utils
 Compiling module 2/184: config
-Compiling module 3/184: router
-Compiling module 4/184: auth
-Compiling module 5/184: billing
-Compiling module 6/184: reports
-Compiling module 7/184: exports
-Compiling module 8/184: notifications
-Compiling module 9/184: search
-Compiling module 10/184: admin
-Compiling module 11/184: dashboard
-Compiling module 12/184: settings
-Compiling module 13/184: onboarding
-Compiling module 14/184: webhooks
-Compiling module 15/184: analytics
-Compiling module 16/184: cache
-Compiling module 17/184: queue
-Compiling module 18/184: workers
-Compiling module 19/184: scheduler
-Compiling module 20/184: migrations
-Processed 0/1000 records from shard 7
-Processed 1/1000 records from shard 7
+... [20 lines omitted to fit 300-token budget] ...
 ... [10 similar lines omitted] ...
 warning: unused variable 'tmp' in src/reports.js:42
 warning: unused variable 'tmp' in src/reports.js:42
 ... [6 identical lines omitted] ...
-Running tests...
-✓ utils: 24 passing
-✓ config: 11 passing
-✓ router: 31 passing
+... [4 lines omitted to fit 300-token budget] ...
 ✗ billing: 3 failing
 Error: Cannot find module './currency' in /app/src/billing/rates.js
     at Module._resolveFilename (node:internal/modules/cjs/loader:1140:15)
@@ -40,7 +18,7 @@ Traceback (most recent call last):
   File "tools/check.py", line 88, in verify
     raise ValueError("checksum mismatch for chunk 41")
 ValueError: checksum mismatch for chunk 41
-{"level":"debug","ts":"2026-10-17T11:58:01Z","msg":"heartbeat","req":"9f2c1a4e-0001-4d2a-9c8e-7f3b1a9c2d4e-aaaaaaaa-bbbbbbbb-cccccccc-dddddddd-eeeeeeee-ffffffff-gggggggg-hhhhhhhh-iiiiiiii-jjjjjjjj-kkkkkkkk-llllllll-mmmmmmmm-nnnnnnnn-oooooooo-pppppppp-qqqqqqqq-rrrrrrrr-ssssssss-tttttttt-uuuuuuuu-vvvvvvvv-wwwwwwww-xxxxxxxx-yyyyyyyy-zzzzzzzz-11111111-22222222-33333333-44444444-55555555-66666666-77777777-88888888-99999999-00000000-abcdef01-23456789-fedcba98-76543210","dur_ms":2}
+... [1 line omitted to fit 300-token budget] ...
 Retrying upload (attempt 1/3)...
 Retrying upload (attempt 2/3)...
 Retrying upload (attempt 3/3)...
