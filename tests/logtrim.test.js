@@ -28,6 +28,29 @@ test("output never exceeds the budget", () => {
   assert.ok(out.length < lines.length);
 });
 
+test("output never exceeds the budget with many error lines", () => {
+  // Error lines are never dropped, and neither are markers — the old
+  // last-resort chop of just the final line could not absorb the excess.
+  const pool = [
+    "ERROR: failed to connect to db",
+    "warning: unused variable tmp",
+    "Compiling module 42/184: foo",
+    "Processed 7/1000 records from shard 3",
+  ];
+  const lines = Array.from({ length: 400 }, (_, i) => pool[i % pool.length]);
+  const { lines: out, stats } = trimLines(lines, { budgetTokens: 341 });
+  assert.ok(stats.outputTokens <= 341, `got ${stats.outputTokens}`);
+  assert.ok(out.some((l) => l.includes("ERROR: failed to connect")));
+});
+
+test("newline join cost counts toward the budget", () => {
+  // 100 unique 4-char lines: a per-line sum says 100 tokens, but the
+  // reported outputTokens (joined text) is 125. The budget must win.
+  const lines = Array.from({ length: 100 }, (_, i) => `ab${String(i).padStart(2, "0")}`);
+  const { stats } = trimLines(lines, { budgetTokens: 100, dedupe: false });
+  assert.ok(stats.outputTokens <= 100, `got ${stats.outputTokens}`);
+});
+
 test("error lines survive even when far over budget", () => {
   // Filler lines vary in length so they are NOT collapsed as "similar".
   const filler = (i) => `filler line ${i} ${"x".repeat(i % 40)}`;
