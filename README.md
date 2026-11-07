@@ -94,7 +94,8 @@ Exit codes: `0` ok · `1` input file not found / unreadable · `2` bad arguments
 
 ## How trimming works
 
-1. **Collapse blank runs** — 5 blank lines become 1.
+1. **Collapse blank runs** — 5 blank lines become 1, plus a
+   `... [4 blank lines omitted] ...` marker so the omitted count stays exact.
 2. **Collapse identical runs** — 8 copies of the same warning become 2 copies
    plus `... [6 identical lines omitted] ...`.
 3. **Collapse similar runs** — 12 `Processed N/1000 records` lines become 2
