@@ -50,20 +50,36 @@ function truncateLine(line, maxLineChars) {
   return `${line.slice(0, maxLineChars)}… [truncated, ${line.length} chars]`;
 }
 
-// Collapse consecutive blank lines to at most one.
+// Collapse consecutive blank lines to at most one, plus a marker saying
+// how many were dropped — exactly like identical/similar runs. Without
+// the marker the dropped blanks vanish from the accounting: a budget
+// marker over a gap containing the run understates the omitted lines,
+// and a kept blank silently stands for several input lines.
 function collapseBlanks(items) {
   const out = [];
   let blankRun = 0;
+  const pushBlankMarker = () => {
+    if (blankRun > 2) {
+      out.push({
+        text: `... [${plural(blankRun - 1, "blank line")} omitted] ...`,
+        isError: false,
+        represents: blankRun - 1,
+        marker: true,
+      });
+    }
+  };
   for (const item of items) {
     if (item.text.trim() === "") {
       blankRun += 1;
       if (blankRun === 1) out.push(item);
-      // extra blanks are dropped; they represent omitted lines
+      // extra blanks are dropped; the marker below accounts for them
       continue;
     }
+    pushBlankMarker();
     blankRun = 0;
     out.push(item);
   }
+  pushBlankMarker();
   return out;
 }
 
@@ -218,7 +234,10 @@ function fitToBudget(items, budgetTokens) {
     }
     let j = i;
     while (j < kept.length && drop.has(j)) j += 1;
-    const runLen = j - i;
+    // Sum `represents`, not items: a dropped item can stand for several
+    // input lines (a collapsed blank run), and counting it as 1 would
+    // understate the folded marker by the rest of the run.
+    const runLen = kept.slice(i, j).reduce((sum, it) => sum + it.represents, 0);
     const prev = merged[merged.length - 1];
     const next = kept[j];
     if (prev && prev.marker && budgetMarkerRE.test(prev.text)) {
