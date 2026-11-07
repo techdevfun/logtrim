@@ -90,9 +90,15 @@ test("long lines are truncated with a note", () => {
   assert.ok(out[0].length < 200);
 });
 
-test("consecutive blank lines collapse to one", () => {
+test("consecutive blank lines collapse to one plus a marker", () => {
   const { lines: out } = trimLines(["a", "", "", "", "b"], { budgetTokens: 2000 });
+  assert.deepEqual(out, ["a", "", "... [2 blank lines omitted] ...", "b"]);
+});
+
+test("a run of two blanks collapses silently, like identical runs of two", () => {
+  const { lines: out, stats } = trimLines(["a", "", "", "b"], { budgetTokens: 2000 });
   assert.deepEqual(out, ["a", "", "b"]);
+  assert.equal(stats.omittedLines, 1);
 });
 
 test("head and tail are kept when over budget", () => {
@@ -136,6 +142,71 @@ test("budget marker counts lines dropped while fitting", () => {
     .filter((l) => l.includes("omitted"))
     .reduce((sum, l) => sum + Number(l.match(/(\d+) lines omitted/)[1]), 0);
   assert.equal(keptOriginal + markerTotal, 300);
+});
+
+test("budget marker counts collapsed blank lines in a dropped gap", () => {
+  // Regression: collapseBlanks dropped the extra blanks outright, so the
+  // surviving blank counted as 1 line in gap markers while stats counted
+  // all of them as omitted — the marker said 301 lines omitted while
+  // stats said 310. The kept blank must represent the whole run.
+  const lines = [
+    ...Array.from({ length: 5 }, (_, i) => `head line ${i} ${"a".repeat(i % 13)}`),
+    ...Array(10).fill(""),
+    ...Array.from({ length: 300 }, (_, i) => `unique line number ${i} ${"y".repeat(i % 37)}`),
+    ...Array.from({ length: 5 }, (_, i) => `tail line ${i} ${"z".repeat(i % 11)}`),
+  ];
+  const { lines: out, stats } = trimLines(lines, {
+    budgetTokens: 50,
+    headLines: 5,
+    tailLines: 5,
+  });
+  assert.ok(stats.outputTokens <= 50, `got ${stats.outputTokens}`);
+  const marker = out.find((l) => l.includes("omitted to fit 50-token budget"));
+  assert.ok(marker, "expected a budget marker");
+  assert.ok(
+    marker.includes(`${stats.omittedLines} lines omitted`),
+    `marker ${marker} should agree with stats omittedLines ${stats.omittedLines}`,
+  );
+  const keptOriginal = out.filter((l) => !l.includes("omitted")).length;
+  const markerTotal = out
+    .filter((l) => l.includes("omitted"))
+    .reduce((sum, l) => sum + Number(l.match(/(\d+) lines omitted/)[1]), 0);
+  assert.equal(keptOriginal + markerTotal, 320);
+});
+
+test("budget marker counts collapsed blank lines kept in head/tail", () => {
+  // Same accounting bug from the other side: the blank run sits inside
+  // the kept head region, so no gap marker covers it — the blank marker
+  // itself must account for the dropped blanks.
+  const lines = [
+    "head 0",
+    "head 1",
+    ...Array(10).fill(""),
+    "head 2",
+    ...Array.from({ length: 300 }, (_, i) => `unique line number ${i} ${"y".repeat(i % 37)}`),
+    ...Array.from({ length: 5 }, (_, i) => `tail line ${i} ${"z".repeat(i % 11)}`),
+  ];
+  const { lines: out, stats } = trimLines(lines, {
+    budgetTokens: 50,
+    headLines: 5,
+    tailLines: 5,
+  });
+  assert.ok(stats.outputTokens <= 50, `got ${stats.outputTokens}`);
+  const keptOriginal = out.filter((l) => !l.includes("omitted")).length;
+  const markerTotal = out
+    .filter((l) => l.includes("omitted"))
+    .reduce((sum, l) => sum + Number(l.match(/(\d+) (?:blank )?lines? omitted/)[1]), 0);
+  assert.equal(keptOriginal + markerTotal, stats.inputLines);
+});
+
+test("collapsed blanks keep one blank line and a marker that accounts for the rest", () => {
+  // The fix changes the accounting, not just the text: the marker carries
+  // the dropped blanks so kept lines + markers account for every input line.
+  const { lines: out, stats } = trimLines(["a", "", "", "", "", "", "b"], {
+    budgetTokens: 2000,
+  });
+  assert.deepEqual(out, ["a", "", "... [4 blank lines omitted] ...", "b"]);
+  assert.equal(stats.omittedLines, 4);
 });
 
 test("isErrorLine catches errors, stack frames, failures", () => {
