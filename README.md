@@ -70,6 +70,7 @@ node bin/logtrim.js --help
 
 ```sh
 # Trim a failing build before pasting it to your agent
+set -o pipefail
 npm run build 2>&1 | logtrim --budget 1500
 
 # Trim a saved log file, see what was cut
