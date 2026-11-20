@@ -5,8 +5,10 @@
 //   2. Collapse runs of identical lines and runs of near-identical lines
 //      (same shape, only numbers differ — e.g. progress spam).
 //   3. Truncate absurdly long lines.
-//   4. If still over budget: keep head + error lines + tail, drop the rest.
-//   5. If error lines alone exceed the budget, truncate them to share it.
+//   4. If still over budget: keep head + error lines + --keep matches
+//      + tail, drop the rest.
+//   5. If error lines (and --keep matches) alone exceed the budget,
+//      truncate them to share it.
 //
 // Token counts are estimates: ~1 token per 4 characters. That is close
 // enough to decide what to keep, and far cheaper than a real tokenizer.
@@ -129,8 +131,8 @@ function collapseSimilar(items) {
       j += 1;
     }
     const run = j - i;
-    const hasError = items.slice(i, j).some((it) => it.isError);
-    if (run >= 5 && !hasError) {
+    const hasProtected = items.slice(i, j).some((it) => it.isError || it.isKeep);
+    if (run >= 5 && !hasProtected) {
       out.push(items[i], items[i + 1]);
       out.push({
         text: `... [${plural(run - 2, "similar line")} omitted] ...`,
@@ -157,6 +159,11 @@ function selectHeadErrorsTail(items, { headLines, tailLines, keepErrors, budgetT
     for (let i = 0; i < n; i += 1) {
       if (items[i].isError) keep.add(i);
     }
+  }
+  // --keep matches survive regardless of --no-errors: the user asked for
+  // these lines explicitly, so they are not error lines by another name.
+  for (let i = 0; i < n; i += 1) {
+    if (items[i].isKeep) keep.add(i);
   }
   const sorted = [...keep].sort((a, b) => a - b);
   const out = [];
@@ -195,7 +202,7 @@ function fitToBudget(items, budgetTokens) {
   const middle = (kept.length - 1) / 2;
   const order = kept
     .map((it, idx) => ({ idx, tok: estimateTokens(it.text) }))
-    .filter((e) => !kept[e.idx].isError && !kept[e.idx].marker)
+    .filter((e) => !kept[e.idx].isError && !kept[e.idx].isKeep && !kept[e.idx].marker)
     .sort((a, b) => Math.abs(a.idx - middle) - Math.abs(b.idx - middle));
   const drop = new Set();
   // e.tok is per-line while total is measured on the joined text, so the
@@ -277,7 +284,8 @@ function fitToBudget(items, budgetTokens) {
   if (total <= budgetTokens) return kept;
   if (kept.length === 0) return kept;
 
-  // Only error lines (or markers) left and still over budget: share it.
+  // Only error lines, --keep matches (or markers) left and still over
+  // budget: share it.
   const perChars = Math.max(50, Math.floor((budgetTokens * 4) / kept.length));
   kept = kept.map((it) => {
     if (it.text.length <= perChars) return it;
@@ -321,7 +329,11 @@ export function trimLines(lines, options = {}) {
     maxLineChars = 500,
     keepErrors = true,
     dedupe = true,
+    // User-supplied keep patterns (--keep): RegExp objects or strings.
+    // A line matching any of them survives trimming like an error line.
+    keep = [],
   } = options;
+  const keepPatterns = keep.map((p) => (p instanceof RegExp ? p : new RegExp(p)));
 
   const inputLines = lines.length;
   const inputTokens = estimateTokens(lines.join("\n"));
@@ -329,6 +341,7 @@ export function trimLines(lines, options = {}) {
   let items = lines.map((text) => ({
     text,
     isError: isErrorLine(text),
+    isKeep: keepPatterns.some((re) => re.test(text)),
     represents: 1,
     marker: false,
   }));
