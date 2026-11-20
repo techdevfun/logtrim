@@ -19,6 +19,8 @@ Options:
   --max-line N    truncate lines longer than N chars (default 500)
   --no-errors     do not prioritize error lines when over budget
   --no-dedupe     do not collapse repeated / similar lines
+  --keep PATTERN  lines matching this regex always survive (repeatable;
+                  a bad regex is rejected, exit 2)
   --stats         print input/output stats as JSON to stderr
   --help, -h      show this help
   --version, -v   show version
@@ -49,6 +51,7 @@ function parseArgs(argv) {
     maxLineChars: 500,
     keepErrors: true,
     dedupe: true,
+    keep: [],
     stats: false,
     file: null,
   };
@@ -75,7 +78,16 @@ function parseArgs(argv) {
     if (arg === "--stats") opts.stats = true;
     else if (arg === "--no-errors") opts.keepErrors = false;
     else if (arg === "--no-dedupe") opts.dedupe = false;
-    else if (arg === "--budget" || arg === "--head" || arg === "--tail" || arg === "--max-line") {
+    else if (arg === "--keep") {
+      const value = args[i + 1];
+      if (value === undefined) fail("--keep needs a value", 2);
+      i += 1;
+      try {
+        opts.keep.push(new RegExp(value));
+      } catch {
+        fail(`--keep must be a valid regex, got "${value}"`, 2);
+      }
+    } else if (arg === "--budget" || arg === "--head" || arg === "--tail" || arg === "--max-line") {
       const value = args[i + 1];
       if (value === undefined) fail(`${arg} needs a value`, 2);
       i += 1;
