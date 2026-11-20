@@ -88,6 +88,7 @@ cat deploy.log | logtrim --budget 800
 | `--max-line N` | 500 | Truncate lines longer than N chars, with a note |
 | `--no-errors` | off | Don't prioritize error lines when over budget |
 | `--no-dedupe` | off | Don't collapse repeated / similar lines |
+| `--keep PATTERN` | — | Lines matching this regex always survive, even over budget (repeatable; a bad regex is rejected, exit 2) |
 | `--stats` | off | Print `{inputLines, outputLines, inputTokens, outputTokens, omittedLines}` as JSON to stderr |
 | `--help`, `--version` | | Show help / version |
 
@@ -104,9 +105,16 @@ Exit codes: `0` ok · `1` input file not found / unreadable · `2` bad arguments
    with only numbers differing. Error lines are never collapsed this way.
 4. **Truncate absurdly long lines** — a 3 KB single-line JSON blob gets cut
    to `--max-line` chars with a `[truncated, N chars]` note.
-5. **If still over budget** — keep head + error lines + tail, drop the
+5. **If still over budget** — keep head + error lines + `--keep` matches + tail, drop the
    middle, and mark each gap with `... [N lines omitted to fit B-token
    budget] ...`. Middle lines go first so the start and end survive.
+   A `--keep` match is kept ahead of everything else: it is never
+   dropped while any droppable line remains, and it is never collapsed
+   as part of a similar run. Identical repeats of a kept line still
+   collapse to 2 + a marker, exactly like error lines. Only in the last
+   resort — when the kept lines alone exceed the budget — do they share
+   it like error lines (truncated, and in the extreme case dropped from
+   the end, so the budget promise still holds).
 6. **Last resort** — if error lines alone exceed the budget, they are
    truncated to share it. Output never exceeds the budget.
 
@@ -126,7 +134,6 @@ aftermath — and tells you exactly how much it removed.
 
 - `--format json` passthrough: keep JSON log lines intact instead of
   truncating mid-object.
-- `--keep PATTERN`: user-supplied regex for lines that must survive.
 - `--watch`: follow a growing log file and re-trim on change.
 
 Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
