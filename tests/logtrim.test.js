@@ -209,6 +209,85 @@ test("collapsed blanks keep one blank line and a marker that accounts for the re
   assert.equal(stats.omittedLines, 4);
 });
 
+test("keep lines survive even when far over budget", () => {
+  // The kept line is an ordinary line in the middle: not an error, not
+  // head or tail. Without --keep it would be dropped to fit the budget.
+  const filler = (i) => `filler line ${i} ${"x".repeat(i % 40)}`;
+  const lines = [
+    "starting build",
+    ...Array.from({ length: 500 }, (_, i) => filler(i)),
+    "DEPLOY_TARGET=prod-eu-7 (keep me)",
+    ...Array.from({ length: 500 }, (_, i) => filler(1000 + i)),
+    "done",
+  ];
+  const { lines: out, stats } = trimLines(lines, {
+    budgetTokens: 100,
+    keep: [/DEPLOY_TARGET/],
+  });
+  assert.ok(stats.outputTokens <= 100, `got ${stats.outputTokens}`);
+  assert.ok(out.some((l) => l.includes("DEPLOY_TARGET=prod-eu-7")));
+});
+
+test("keep works with several patterns, strings or regexes", () => {
+  const lines = [
+    "starting build",
+    ...Array.from({ length: 300 }, (_, i) => `filler line ${i} ${"x".repeat(i % 40)}`),
+    "checksum: abc123",
+    "shard: eu-west-1",
+    "done",
+  ];
+  const { lines: out } = trimLines(lines, {
+    budgetTokens: 100,
+    keep: ["checksum:", /shard: \S+/],
+  });
+  assert.ok(out.some((l) => l.includes("checksum: abc123")));
+  assert.ok(out.some((l) => l.includes("shard: eu-west-1")));
+});
+
+test("keep lines survive --no-errors too", () => {
+  const filler = (i) => `filler line ${i} ${"x".repeat(i % 40)}`;
+  const lines = [
+    "starting build",
+    ...Array.from({ length: 500 }, (_, i) => filler(i)),
+    "RELEASE=2.4.1",
+    ...Array.from({ length: 500 }, (_, i) => filler(1000 + i)),
+    "done",
+  ];
+  const { lines: out } = trimLines(lines, {
+    budgetTokens: 100,
+    keepErrors: false,
+    keep: [/RELEASE=/],
+  });
+  assert.ok(out.some((l) => l.includes("RELEASE=2.4.1")));
+});
+
+test("keep lines are not collapsed as similar runs", () => {
+  const lines = [
+    "start",
+    ...Array.from({ length: 12 }, (_, i) => `Checkpoint ${i}/1000 reached`),
+    "end",
+  ];
+  const { lines: out } = trimLines(lines, { budgetTokens: 2000, keep: [/Checkpoint/] });
+  assert.ok(!out.some((l) => l.includes("similar lines omitted")));
+  assert.equal(out.filter((l) => l.startsWith("Checkpoint")).length, 12);
+});
+
+test("CLI --keep keeps the line; a bad regex exits 2", () => {
+  const input = `${"filler line\n".repeat(300)}DEPLOY_TARGET=prod-eu-7\n`;
+  const res = spawnSync(process.execPath, [cli, "--budget", "100", "--keep", "DEPLOY_TARGET"], {
+    input,
+    encoding: "utf8",
+  });
+  assert.equal(res.status, 0);
+  assert.ok(res.stdout.includes("DEPLOY_TARGET=prod-eu-7"));
+  const bad = spawnSync(process.execPath, [cli, "--keep", "(unclosed"], {
+    input: "x\n",
+    encoding: "utf8",
+  });
+  assert.equal(bad.status, 2);
+  assert.match(bad.stderr, /valid regex/);
+});
+
 test("isErrorLine catches errors, stack frames, failures", () => {
   assert.equal(isErrorLine("Error: something broke"), true);
   assert.equal(isErrorLine("    at doThing (index.js:12:3)"), true);
